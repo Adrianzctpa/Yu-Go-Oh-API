@@ -51,9 +51,14 @@ func main() {
 			qSize = 20
 		}
 
-		slice := dbUtils.GetCardsInDB(DB, "", page, qSize)
-		count := dbUtils.GetCount(DB, "") - 1
-		pag := dbpaginate.Paginate(slice, page, qSize, count)
+		filterMap := map[string]string{
+			"card_name":  "",
+			"card_level": "",
+		}
+
+		slice := dbUtils.GetCardsInDB(DB, filterMap, page, qSize, "get")
+		count, url := dbUtils.GetCount(DB, filterMap, "get")
+		pag := dbpaginate.Paginate(slice, page, qSize, count, url)
 		return c.JSON(pag)
 	})
 
@@ -63,11 +68,36 @@ func main() {
 	})
 
 	app.Get("/cards/filter/", func(c *fiber.Ctx) error {
-		name := c.Query("name")
+		name := c.Query("card_name")
+		level := c.Query("card_level")
+		archetype := c.Query("archetype")
+		attribute := c.Query("attribute")
+		cardType := c.Query("card_type")
+		race := c.Query("race")
+		linkval := c.Query("linkval")
+		linkmark := c.Query("linkmarkers")
+		scale := c.Query("scale")
+		atk := c.Query("atk")
+		def := c.Query("def")
+
+		arrayOfParams := []string{name, level, archetype, attribute, cardType, race, linkval, linkmark, scale, atk, def}
+
+		noFilter := true
+		for i := 0; i < len(arrayOfParams); i++ {
+			if arrayOfParams[i] != "" {
+				noFilter = false
+			}
+
+			if i == (len(arrayOfParams) - 1) {
+				if noFilter {
+					return c.SendString("No filters applied")
+				}
+			}
+		}
 
 		page, err := strconv.Atoi(c.Query("page"))
-		if err != nil || (page <= 0) {
-			page = 1
+		if err != nil || (page < 0) {
+			page = 0
 		}
 
 		qSize, err := strconv.Atoi(c.Query("query_size"))
@@ -75,9 +105,23 @@ func main() {
 			qSize = 20
 		}
 
-		slice := dbUtils.GetCardsInDB(DB, name, page, qSize)
-		count := dbUtils.GetCount(DB, name) - 1
-		pag := dbpaginate.Paginate(slice, page, qSize, count)
+		filterMap := map[string]string{
+			"card_name":   name,
+			"card_level":  level,
+			"archetype":   archetype,
+			"attribute":   attribute,
+			"card_type":   cardType,
+			"race":        race,
+			"linkval":     linkval,
+			"linkmarkers": linkmark,
+			"card_scale":  scale,
+			"atk":         atk,
+			"def":         def,
+		}
+
+		slice := dbUtils.GetCardsInDB(DB, filterMap, page, qSize, "filter")
+		count, url := dbUtils.GetCount(DB, filterMap, "filter")
+		pag := dbpaginate.Paginate(slice, page, qSize, count, url)
 		return c.JSON(pag)
 	})
 
