@@ -31,7 +31,7 @@ func GetCount(DB *sql.DB, filterMap map[string]string, mode string) (int, string
 	return count, url
 }
 
-func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size int, mode string) []dbConfig.Card {
+func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size int, mode string) ([]dbConfig.Card, error) {
 	var sqlStatement string
 
 	if mode == "filter" {
@@ -41,7 +41,10 @@ func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size 
 	}
 
 	query, err := DB.Query(sqlStatement)
-	checkErr(err)
+
+	if checkErr(err) {
+		return []dbConfig.Card{}, err
+	}
 
 	newCards := []dbConfig.Card{}
 
@@ -57,6 +60,10 @@ func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size 
 			&card.Image_url_uint8, &card.Image_url_small_uint8,
 		)
 		checkErr(err)
+
+		if checkErr(err) {
+			return []dbConfig.Card{}, err
+		}
 
 		parsed_image := string(card.Image_url_uint8[:])
 		small_parsed_image := string(card.Image_url_small_uint8[:])
@@ -81,7 +88,7 @@ func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size 
 		newCards = append(newCards, card)
 	}
 
-	return newCards
+	return newCards, err
 }
 
 func AddCardToDB(card dbConfig.CardDB, DB *sql.DB) {
@@ -127,6 +134,8 @@ func prepareExecToDB(sqlStatement string, DB *sql.DB, args ...interface{}) {
 }
 
 func writeSQLStatement(statementType string, filterMap map[string]string, page int, limit int) (string, string) {
+	baseUrl := "/cards/?"
+
 	if page > 1 {
 		page = (page - 1) * limit
 	}
@@ -147,7 +156,7 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 				) as L
 				`, os.Getenv("CARD_TABLE_NAME"), limit, page, os.Getenv("IMAGES_TABLE_NAME"))
 
-		return sqlStatement, "/cards/?"
+		return sqlStatement, baseUrl
 	case "post":
 		sqlStatement := fmt.Sprintf(`
 				INSERT INTO %s 
@@ -155,15 +164,15 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 				VALUES 
 				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, os.Getenv("CARD_TABLE_NAME"))
 
-		return sqlStatement, "/cards/?"
+		return sqlStatement, baseUrl
 	case "postImg":
 		sqlStatement := fmt.Sprintf(`INSERT INTO %s (id, card_id, image_url, image_url_small) VALUES ($1, $2, $3, $4)`, os.Getenv("IMAGES_TABLE_NAME"))
 
-		return sqlStatement, "/cards/?"
+		return sqlStatement, baseUrl
 	case "count":
 		sqlStatement := fmt.Sprintf(`SELECT COUNT(*) FROM %s`, os.Getenv("CARD_TABLE_NAME"))
 
-		return sqlStatement, "/cards/?"
+		return sqlStatement, baseUrl
 	case "countFilter":
 		sqlStatement, url := filterLoop(filterMap, limit, page, "count")
 
@@ -173,9 +182,11 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 	return "", ""
 }
 
-func ExportJSONToDB(DB *sql.DB) {
+func ExportJSONToDB(DB *sql.DB) error {
 	jsonFile, err := os.Open("cardinfo.json")
-	checkErr(err)
+	if checkErr(err) {
+		return err
+	}
 
 	defer jsonFile.Close()
 
@@ -189,20 +200,20 @@ func ExportJSONToDB(DB *sql.DB) {
 	for i := 0; i < len(data.Cards); i++ {
 		AddCardToDB(data.Cards[i], DB)
 	}
+
+	return nil
 }
 
 func filterLoop(filterMap map[string]string, limit int, page int, mode string) (string, string) {
-	var sqlStatement string
 	filterUrl := `/cards/filter/?`
+	sqlStatement := fmt.Sprintf(`
+	SELECT *
+	FROM (SELECT * FROM %s WHERE
+	`, os.Getenv("CARD_TABLE_NAME"))
 
 	if mode == "count" {
 		sqlStatement = fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE 
-		`, os.Getenv("CARD_TABLE_NAME"))
-	} else {
-		sqlStatement = fmt.Sprintf(`
-		SELECT *
-		FROM (SELECT * FROM %s WHERE
 		`, os.Getenv("CARD_TABLE_NAME"))
 	}
 
@@ -211,6 +222,8 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 
 	for key, value := range filterMap {
 		i++
+
+		// If it is the end of the loop
 		if i == len(filterMap) {
 			if mode != "count" {
 				sqlStatement = sqlStatement + fmt.Sprintf(` 
@@ -232,10 +245,10 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 				if key == arrayOfExacts[i] {
 					var newFilter string
 					if edited {
-						newFilter = fmt.Sprintf("AND %s = %s", key, value)
+						newFilter = fmt.Sprintf("AND %s = '%s'", key, value)
 						filterUrl = filterUrl + fmt.Sprintf(`&%s=%s`, key, value)
 					} else {
-						newFilter = fmt.Sprintf("%s = %s", key, value)
+						newFilter = fmt.Sprintf("%s = '%s'", key, value)
 						filterUrl = filterUrl + fmt.Sprintf(`%s=%s`, key, value)
 						edited = true
 					}
@@ -251,23 +264,24 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 
 				if edited {
 					sqlStatement = sqlStatement + fmt.Sprintf(`
-							AND card_name ILIKE %s OR description ILIKE %s
-							`, filter, filter)
+								AND card_name ILIKE %s OR description ILIKE %s
+								`, filter, filter)
 					filterUrl = filterUrl + fmt.Sprintf(`&%s=%s`, key, value)
 				} else {
 					sqlStatement = sqlStatement + fmt.Sprintf(`
-							card_name ILIKE %s OR description ILIKE %s
-							`, filter, filter)
+								card_name ILIKE %s OR description ILIKE %s
+								`, filter, filter)
 					filterUrl = filterUrl + fmt.Sprintf(`%s=%s`, key, value)
 					edited = true
 				}
+
 			case "linkmarkers":
 				var newFilter string
 
 				linkmark := strings.ReplaceAll(value, `"`, `'`)
+				newFilter = fmt.Sprintf("AND %s @> ARRAY[%s]::text[]", key, linkmark)
 
 				if edited {
-					newFilter = fmt.Sprintf("AND %s @> ARRAY[%s]::text[]", key, linkmark)
 					filterUrl = filterUrl + fmt.Sprintf(`&%s=%s`, key, value)
 				} else {
 					newFilter = fmt.Sprintf("%s @> ARRAY[%s]::text[]", key, linkmark)
@@ -294,13 +308,13 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 
 				if edited {
 					sqlStatement = sqlStatement + fmt.Sprintf(`
-							AND %s ILIKE %s
-							`, key, filter)
+								AND %s ILIKE %s
+								`, key, filter)
 					filterUrl = filterUrl + fmt.Sprintf(`&%s=%s`, key, value)
 				} else {
 					sqlStatement = sqlStatement + fmt.Sprintf(`
-							%s ILIKE %s
-							`, key, filter)
+								%s ILIKE %s
+								`, key, filter)
 					filterUrl = filterUrl + fmt.Sprintf(`%s=%s`, key, value)
 					edited = true
 				}
@@ -311,8 +325,6 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 	return sqlStatement, filterUrl
 }
 
-func checkErr(err error) {
-	if err != nil {
-		panic(err.Error())
-	}
+func checkErr(err error) bool {
+	return err != nil
 }

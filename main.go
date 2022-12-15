@@ -56,14 +56,34 @@ func main() {
 			"card_level": "",
 		}
 
-		slice := dbUtils.GetCardsInDB(DB, filterMap, page, qSize, "get")
+		json := map[string]interface{}{}
+
+		slice, err := dbUtils.GetCardsInDB(DB, filterMap, page, qSize, "get")
+
+		if err != nil {
+			json["status"] = 500
+			json["error"] = err.Error()
+			return c.JSON(json)
+		}
+
 		count, url := dbUtils.GetCount(DB, filterMap, "get")
 		pag := dbpaginate.Paginate(slice, page, qSize, count, url)
-		return c.JSON(pag)
+
+		json["status"] = 200
+		json["data"] = pag
+
+		return c.JSON(json)
 	})
 
 	app.Get("/cards/load", func(c *fiber.Ctx) error {
-		dbUtils.ExportJSONToDB(DB)
+		err := dbUtils.ExportJSONToDB(DB)
+
+		if err != nil {
+			return c.JSON(fiber.Map{
+				"status":  500,
+				"message": "Error loading cards",
+			})
+		}
 		return c.SendString("Done")
 	})
 
@@ -119,10 +139,22 @@ func main() {
 			"def":         def,
 		}
 
-		slice := dbUtils.GetCardsInDB(DB, filterMap, page, qSize, "filter")
+		json := map[string]interface{}{}
+		slice, err := dbUtils.GetCardsInDB(DB, filterMap, page, qSize, "filter")
+
+		if err != nil {
+			json["status"] = 500
+			json["error"] = err.Error()
+			return c.JSON(json)
+		}
+
 		count, url := dbUtils.GetCount(DB, filterMap, "filter")
 		pag := dbpaginate.Paginate(slice, page, qSize, count, url)
-		return c.JSON(pag)
+
+		json["status"] = 200
+		json["data"] = pag
+
+		return c.JSON(json)
 	})
 
 	log.Fatal(app.Listen(":4000"))
