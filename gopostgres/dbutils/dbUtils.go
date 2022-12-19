@@ -138,6 +138,8 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 
 	if page > 1 {
 		page = (page - 1) * limit
+	} else {
+		page = 0
 	}
 
 	switch statementType {
