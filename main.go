@@ -96,7 +96,7 @@ func main() {
 		race := c.Query("race")
 		linkval := c.Query("linkval")
 		linkmark := c.Query("linkmarkers")
-		scale := c.Query("scale")
+		scale := c.Query("card_scale")
 		atk := c.Query("atk")
 		def := c.Query("def")
 
