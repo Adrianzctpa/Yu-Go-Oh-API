@@ -18,4 +18,7 @@ require (
 	golang.org/x/sys v0.0.0-20220811171246-fbc7d0a398ab // indirect
 )
 
-require github.com/joho/godotenv v1.4.0 // indirect
+require (
+	github.com/joho/godotenv v1.4.0 // indirect
+	gopkg.in/guregu/null.v4 v4.0.0 // indirect
+)
