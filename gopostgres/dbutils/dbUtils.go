@@ -40,6 +40,8 @@ func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size 
 		sqlStatement, _ = writeSQLStatement("get", filterArr, page, query_size)
 	}
 
+	fmt.Print(sqlStatement)
+
 	query, err := DB.Query(sqlStatement)
 
 	if checkErr(err) {
@@ -225,24 +227,9 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 	for key, value := range filterMap {
 		i++
 
-		// If it is the end of the loop
-		if i == len(filterMap) {
-			if mode != "count" {
-				sqlStatement = sqlStatement + fmt.Sprintf(` 
-				LIMIT %d OFFSET %d) as Q, 
-				LATERAL (
-					SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small 
-					FROM %s ci 
-					WHERE ci.card_id = Q.id
-				) as L`, limit, page, os.Getenv("IMAGES_TABLE_NAME"))
-			}
-
-			filterUrl = filterUrl + "&"
-		}
-
 		if value != "" {
 			// Filtering exacts
-			arrayOfExacts := [8]string{"card_level", "card_type", "linkval", "card_scale", "atk", "def"}
+			arrayOfExacts := [6]string{"card_level", "card_type", "linkval", "card_scale", "atk", "def"}
 			for i := 0; i < len(arrayOfExacts); i++ {
 				if key == arrayOfExacts[i] {
 					var newFilter string
@@ -258,7 +245,6 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 				}
 			}
 
-		loop:
 			switch key {
 			case "card_name":
 				value = strings.ReplaceAll(value, `"`, "")
@@ -266,13 +252,13 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 
 				if edited {
 					sqlStatement = sqlStatement + fmt.Sprintf(`
-								AND card_name ILIKE %s OR description ILIKE %s
-								`, filter, filter)
+									AND card_name ILIKE %s OR description ILIKE %s
+									`, filter, filter)
 					filterUrl = filterUrl + fmt.Sprintf(`&%s=%s`, key, value)
 				} else {
 					sqlStatement = sqlStatement + fmt.Sprintf(`
-								card_name ILIKE %s OR description ILIKE %s
-								`, filter, filter)
+									card_name ILIKE %s OR description ILIKE %s
+									`, filter, filter)
 					filterUrl = filterUrl + fmt.Sprintf(`%s=%s`, key, value)
 					edited = true
 				}
@@ -297,30 +283,42 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 				for _, val := range arrayOfExacts {
 					if key == val {
 						exists = true
-						break
 					}
 				}
 
-				if exists {
-					break loop
-				}
+				if !exists {
+					value = strings.ReplaceAll(value, `"`, "")
+					filter := "'" + value + "%'"
 
-				value = strings.ReplaceAll(value, `"`, "")
-				filter := "'" + value + "%'"
-
-				if edited {
-					sqlStatement = sqlStatement + fmt.Sprintf(`
-								AND %s ILIKE %s
-								`, key, filter)
-					filterUrl = filterUrl + fmt.Sprintf(`&%s=%s`, key, value)
-				} else {
-					sqlStatement = sqlStatement + fmt.Sprintf(`
-								%s ILIKE %s
-								`, key, filter)
-					filterUrl = filterUrl + fmt.Sprintf(`%s=%s`, key, value)
-					edited = true
+					if edited {
+						sqlStatement = sqlStatement + fmt.Sprintf(`
+										AND %s ILIKE %s
+										`, key, filter)
+						filterUrl = filterUrl + fmt.Sprintf(`&%s=%s`, key, value)
+					} else {
+						sqlStatement = sqlStatement + fmt.Sprintf(`
+										%s ILIKE %s
+										`, key, filter)
+						filterUrl = filterUrl + fmt.Sprintf(`%s=%s`, key, value)
+						edited = true
+					}
 				}
 			}
+		}
+
+		// If it is the end of the loop
+		if i == len(filterMap) {
+			if mode != "count" {
+				sqlStatement = sqlStatement + fmt.Sprintf(` 
+				LIMIT %d OFFSET %d) as Q, 
+				LATERAL (
+					SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small 
+					FROM %s ci 
+					WHERE ci.card_id = Q.id
+				) as L`, limit, page, os.Getenv("IMAGES_TABLE_NAME"))
+			}
+
+			filterUrl = filterUrl + "&"
 		}
 	}
 
