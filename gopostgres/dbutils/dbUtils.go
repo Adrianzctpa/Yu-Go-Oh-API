@@ -31,6 +31,59 @@ func GetCount(DB *sql.DB, filterMap map[string]string, mode string) (int, string
 	return count, url
 }
 
+func cleanStringAndReturnArr(str string) []string {
+	slice := strings.Split(str, ",")
+	var arr []string
+	for i := 0; i < len(slice); i++ {
+		parsed_string := strings.ReplaceAll(slice[i], "{", "")
+		parsed_string = strings.ReplaceAll(parsed_string, "}", "")
+
+		slice[i] = parsed_string
+
+		arr = append(arr, parsed_string)
+	}
+
+	return arr
+}
+
+func GetCardById(DB *sql.DB, id int) (dbConfig.Card, error) {
+	var sqlStatement string
+	filterMap := map[string]string{"id": fmt.Sprintf("%d", id)}
+
+	sqlStatement, _ = writeSQLStatement("getById", filterMap, 0, 0)
+
+	query, err := DB.Query(sqlStatement)
+
+	if checkErr(err) {
+		return dbConfig.Card{}, err
+	}
+
+	var card dbConfig.Card
+
+	for query.Next() {
+		err = query.Scan(
+			&card.ID, &card.Card_Name, &card.Card_Type, &card.Description, &card.Archetype, &card.Atk,
+			&card.Def, &card.Card_Level, &card.Race, &card.Attr, &card.Linkval, &card.Linkmarkers, &card.Card_Scale,
+			&card.Image_url_uint8, &card.Image_url_small_uint8,
+		)
+
+		if checkErr(err) {
+			return dbConfig.Card{}, err
+		}
+
+		parsed_image := string(card.Image_url_uint8[:])
+		small_parsed_image := string(card.Image_url_small_uint8[:])
+
+		arr := cleanStringAndReturnArr(parsed_image)
+		small_arr := cleanStringAndReturnArr(small_parsed_image)
+
+		card.Image_url = arr
+		card.Image_url_small = small_arr
+	}
+
+	return card, err
+}
+
 func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size int, mode string) ([]dbConfig.Card, error) {
 	var sqlStatement string
 
@@ -70,20 +123,8 @@ func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size 
 		parsed_image := string(card.Image_url_uint8[:])
 		small_parsed_image := string(card.Image_url_small_uint8[:])
 
-		image_slice := strings.Split(parsed_image, ",")
-		small_image_slice := strings.Split(small_parsed_image, ",")
-
-		for i := 0; i < len(image_slice); i++ {
-			parsed_string := strings.ReplaceAll(image_slice[i], "{", "")
-			parsed_string = strings.ReplaceAll(parsed_string, "}", "")
-
-			arr = append(arr, parsed_string)
-
-			small_parsed_string := strings.ReplaceAll(small_image_slice[i], "{", "")
-			small_parsed_string = strings.ReplaceAll(small_parsed_string, "}", "")
-
-			small_arr = append(small_arr, small_parsed_string)
-		}
+		arr = cleanStringAndReturnArr(parsed_image)
+		small_arr = cleanStringAndReturnArr(small_parsed_image)
 
 		card.Image_url = arr
 		card.Image_url_small = small_arr
@@ -159,6 +200,18 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 					WHERE ci.card_id = Q.id
 				) as L
 				`, os.Getenv("CARD_TABLE_NAME"), limit, page, os.Getenv("IMAGES_TABLE_NAME"))
+
+		return sqlStatement, baseUrl
+	case "getById":
+		sqlStatement := fmt.Sprintf(`
+		SELECT *
+		FROM (SELECT * FROM %s WHERE id = %s) as Q,
+		LATERAL (
+			SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small
+			FROM %s ci
+			WHERE ci.card_id = Q.id
+		) as L
+		`, os.Getenv("CARD_TABLE_NAME"), filterMap["id"], os.Getenv("IMAGES_TABLE_NAME"))
 
 		return sqlStatement, baseUrl
 	case "post":

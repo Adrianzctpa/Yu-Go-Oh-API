@@ -157,6 +157,33 @@ func main() {
 		return c.JSON(json)
 	})
 
+	//get card by id
+	app.Get("/cards/:id", func(c *fiber.Ctx) error {
+		id := c.Params("id")
+		integer, err := strconv.Atoi(id)
+
+		if err != nil {
+			return c.JSON(fiber.Map{
+				"status":  500,
+				"message": "Error parsing id",
+			})
+		}
+
+		json := map[string]interface{}{}
+		card, err := dbUtils.GetCardById(DB, integer)
+
+		if err != nil {
+			json["status"] = 500
+			json["error"] = err.Error()
+			return c.JSON(json)
+		}
+
+		json["status"] = 200
+		json["data"] = card
+
+		return c.JSON(json)
+	})
+
 	log.Fatal(app.Listen(":4000"))
 }
 
