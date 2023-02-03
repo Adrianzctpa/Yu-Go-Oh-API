@@ -9,6 +9,10 @@ type DB struct {
 	Cards []CardDB `json:"data"`
 }
 
+type BanlistDB struct {
+	List []Banlist `json:"data"`
+}
+
 type Card struct {
 	ID                    int            `json:"id"`
 	Card_Name             string         `json:"card_name"`
@@ -50,6 +54,12 @@ type CardImageDB struct {
 	ID              int    `json:"id"`
 	Image_url       string `json:"image_url"`
 	Image_url_small string `json:"image_url_small"`
+}
+
+type Banlist struct {
+	ID          int               `json:"id"`
+	FrameType   string            `json:"frameType"`
+	BanlistInfo map[string]string `json:"banlist_info"`
 }
 
 const PostgresDriver = "postgres"

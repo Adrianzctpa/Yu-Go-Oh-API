@@ -184,6 +184,27 @@ func main() {
 		return c.JSON(json)
 	})
 
+	app.Post("/banlist/load/:mode", func(c *fiber.Ctx) error {
+		mode := c.Params("mode")
+
+		if mode != "tcg" && mode != "ocg" {
+			return c.JSON(fiber.Map{
+				"status":  500,
+				"message": "Invalid mode",
+			})
+		}
+
+		err := dbUtils.ExportBanlistJSONToDB(DB, mode)
+
+		if err != nil {
+			return c.JSON(fiber.Map{
+				"status":  500,
+				"message": "Error loading banlist",
+			})
+		}
+		return c.SendString("Done")
+	})
+
 	log.Fatal(app.Listen(":4000"))
 }
 

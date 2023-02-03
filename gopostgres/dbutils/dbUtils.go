@@ -93,8 +93,6 @@ func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size 
 		sqlStatement, _ = writeSQLStatement("get", filterArr, page, query_size)
 	}
 
-	fmt.Print(sqlStatement)
-
 	query, err := DB.Query(sqlStatement)
 
 	if checkErr(err) {
@@ -163,6 +161,26 @@ func AddCardToDB(card dbConfig.CardDB, DB *sql.DB) {
 	}
 }
 
+func AddBanlistToDB(banlist dbConfig.Banlist, DB *sql.DB, mode string) {
+	filterMap := map[string]string{
+		"table": os.Getenv("BANLIST_TABLE"),
+	}
+
+	if mode == "ocg" {
+		filterMap["table"] = os.Getenv("OCG_BANLIST_TABLE")
+	}
+
+	jsonStr, err := json.Marshal(banlist.BanlistInfo)
+	checkErr(err)
+
+	sqlStatement, _ := writeSQLStatement("postBanlist", filterMap, 0, 0)
+
+	prepareExecToDB(
+		sqlStatement, DB,
+		banlist.ID, banlist.ID, jsonStr, banlist.FrameType,
+	)
+}
+
 func prepareExecToDB(sqlStatement string, DB *sql.DB, args ...interface{}) {
 	insert, err := DB.Prepare(sqlStatement)
 	checkErr(err)
@@ -223,7 +241,11 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 
 		return sqlStatement, baseUrl
 	case "postImg":
-		sqlStatement := fmt.Sprintf(`INSERT INTO %s (id, card_id, image_url, image_url_small) VALUES ($1, $2, $3, $4)`, os.Getenv("IMAGES_TABLE_NAME"))
+		sqlStatement := fmt.Sprintf(`INSERT INTO %s (id, card_id, image_url, image_url_small) VALUES ($1, $2, $3, $4)`, filterMap["table"])
+
+		return sqlStatement, baseUrl
+	case "postBanlist":
+		sqlStatement := fmt.Sprintf(`INSERT INTO %s (id, card_id, banlist_info, frameType) VALUES ($1, $2, $3, $4)`, os.Getenv("BANLIST_TABLE_NAME"))
 
 		return sqlStatement, baseUrl
 	case "count":
@@ -237,28 +259,6 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 	}
 
 	return "", ""
-}
-
-func ExportJSONToDB(DB *sql.DB) error {
-	jsonFile, err := os.Open("cardinfo.json")
-	if checkErr(err) {
-		return err
-	}
-
-	defer jsonFile.Close()
-
-	byteVal, _ := io.ReadAll(jsonFile)
-
-	var data dbConfig.DB
-
-	json.Unmarshal(byteVal, &data)
-
-	// add every card to the database
-	for i := 0; i < len(data.Cards); i++ {
-		AddCardToDB(data.Cards[i], DB)
-	}
-
-	return nil
 }
 
 func filterLoop(filterMap map[string]string, limit int, page int, mode string) (string, string) {
@@ -376,6 +376,57 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 	}
 
 	return sqlStatement, filterUrl
+}
+
+func ExportJSONToDB(DB *sql.DB) error {
+	jsonFile, err := os.Open("cardinfo.json")
+	if checkErr(err) {
+		return err
+	}
+
+	defer jsonFile.Close()
+
+	byteVal, _ := io.ReadAll(jsonFile)
+
+	var data dbConfig.DB
+
+	json.Unmarshal(byteVal, &data)
+
+	// add every card to the database
+	for i := 0; i < len(data.Cards); i++ {
+		AddCardToDB(data.Cards[i], DB)
+	}
+
+	return nil
+}
+
+func ExportBanlistJSONToDB(DB *sql.DB, mode string) error {
+	var jsonFile *os.File
+	var err error
+
+	if mode == "tcg" {
+		jsonFile, err = os.Open("banlist.json")
+	} else {
+		jsonFile, err = os.Open("banlistocg.json")
+	}
+
+	if checkErr(err) {
+		return err
+	}
+
+	defer jsonFile.Close()
+
+	byteVal, _ := io.ReadAll(jsonFile)
+
+	var data dbConfig.BanlistDB
+
+	json.Unmarshal(byteVal, &data)
+
+	for i := 0; i < len(data.List); i++ {
+		AddBanlistToDB(data.List[i], DB, mode)
+	}
+
+	return nil
 }
 
 func checkErr(err error) bool {
