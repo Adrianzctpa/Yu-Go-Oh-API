@@ -64,11 +64,22 @@ func GetCardById(DB *sql.DB, id int) (dbConfig.Card, error) {
 		err = query.Scan(
 			&card.ID, &card.Card_Name, &card.Card_Type, &card.Description, &card.Archetype, &card.Atk,
 			&card.Def, &card.Card_Level, &card.Race, &card.Attr, &card.Linkval, &card.Linkmarkers, &card.Card_Scale,
-			&card.Image_url_uint8, &card.Image_url_small_uint8,
+			&card.BanlistInfoString, &card.Image_url_uint8, &card.Image_url_small_uint8,
 		)
 
 		if checkErr(err) {
 			return dbConfig.Card{}, err
+		}
+
+		if card.BanlistInfoString.String != "" {
+			err := json.Unmarshal([]byte(card.BanlistInfoString.String), &card.BanlistInfo)
+			checkErr(err)
+		} else {
+			card.BanlistInfo = map[string]string{
+				"tcg":  "Unlimited",
+				"ocg":  "Unlimited",
+				"goat": "Unlimited",
+			}
 		}
 
 		parsed_image := string(card.Image_url_uint8[:])
@@ -110,12 +121,23 @@ func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size 
 		err = query.Scan(
 			&card.ID, &card.Card_Name, &card.Card_Type, &card.Description, &card.Archetype, &card.Atk,
 			&card.Def, &card.Card_Level, &card.Race, &card.Attr, &card.Linkval, &card.Linkmarkers, &card.Card_Scale,
-			&card.Image_url_uint8, &card.Image_url_small_uint8,
+			&card.BanlistInfoString, &card.Image_url_uint8, &card.Image_url_small_uint8,
 		)
 		checkErr(err)
 
 		if checkErr(err) {
 			return []dbConfig.Card{}, err
+		}
+
+		if card.BanlistInfoString.String != "" {
+			err := json.Unmarshal([]byte(card.BanlistInfoString.String), &card.BanlistInfo)
+			checkErr(err)
+		} else {
+			card.BanlistInfo = map[string]string{
+				"tcg":  "Unlimited",
+				"ocg":  "Unlimited",
+				"goat": "Unlimited",
+			}
 		}
 
 		parsed_image := string(card.Image_url_uint8[:])
@@ -161,13 +183,13 @@ func AddCardToDB(card dbConfig.CardDB, DB *sql.DB) {
 	}
 }
 
-func AddBanlistToDB(banlist dbConfig.Banlist, DB *sql.DB, mode string) {
+func AddBanlistToDB(banlist dbConfig.BanlistJSON, DB *sql.DB, mode string) {
 	filterMap := map[string]string{
-		"table": os.Getenv("BANLIST_TABLE"),
+		"table": os.Getenv("BANLIST_TABLE_NAME"),
 	}
 
 	if mode == "ocg" {
-		filterMap["table"] = os.Getenv("OCG_BANLIST_TABLE")
+		filterMap["table"] = os.Getenv("OCG_BANLIST_TABLE_NAME")
 	}
 
 	jsonStr, err := json.Marshal(banlist.BanlistInfo)
@@ -196,9 +218,25 @@ func prepareExecToDB(sqlStatement string, DB *sql.DB, args ...interface{}) {
 
 func writeSQLStatement(statementType string, filterMap map[string]string, page int, limit int) (string, string) {
 	baseUrl := "/cards/?"
+	var baseSelect string = `
+		SELECT Q.id, Q.card_name, Q.card_type, 
+		Q.description, Q.archetype, Q.atk, Q.def, 
+		Q.card_level, Q.race, Q.attr, Q.linkval, 
+		Q.linkmarkers, Q.card_scale, ban.banlist_info,
+		L.image_url, L.image_url_small
+	`
+
+	var baseJoins string = fmt.Sprintf(`
+		LEFT JOIN %s ban on Q.id = card_id
+		CROSS JOIN LATERAL (
+			SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small
+			FROM %s ci
+			WHERE ci.card_id = Q.id
+		) as L
+	`, os.Getenv("BANLIST_TABLE_NAME"), os.Getenv("IMAGES_TABLE_NAME"))
 
 	if page > 1 {
-		page = (page - 1) * limit
+		page = limit * page
 	} else {
 		page = 0
 	}
@@ -209,27 +247,18 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 
 		return sqlStatement, url
 	case "get":
-		sqlStatement := fmt.Sprintf(`
-				SELECT *
-				FROM (SELECT * FROM %s LIMIT %d OFFSET %d) as Q,
-				LATERAL (
-					SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small
-					FROM %s ci
-					WHERE ci.card_id = Q.id
-				) as L
-				`, os.Getenv("CARD_TABLE_NAME"), limit, page, os.Getenv("IMAGES_TABLE_NAME"))
+		getString := fmt.Sprintf(`
+		FROM (SELECT * FROM %s LIMIT %d OFFSET %d) as Q
+		`, os.Getenv("CARD_TABLE_NAME"), limit, page)
+
+		sqlStatement := baseSelect + getString + baseJoins
 
 		return sqlStatement, baseUrl
 	case "getById":
-		sqlStatement := fmt.Sprintf(`
-		SELECT *
-		FROM (SELECT * FROM %s WHERE id = %s) as Q,
-		LATERAL (
-			SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small
-			FROM %s ci
-			WHERE ci.card_id = Q.id
-		) as L
-		`, os.Getenv("CARD_TABLE_NAME"), filterMap["id"], os.Getenv("IMAGES_TABLE_NAME"))
+		getIdString := fmt.Sprintf(`
+		FROM (SELECT * FROM %s WHERE id = %s) as Q`, os.Getenv("CARD_TABLE_NAME"), filterMap["id"])
+
+		sqlStatement := baseSelect + getIdString + baseJoins
 
 		return sqlStatement, baseUrl
 	case "post":
@@ -245,7 +274,7 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 
 		return sqlStatement, baseUrl
 	case "postBanlist":
-		sqlStatement := fmt.Sprintf(`INSERT INTO %s (id, card_id, banlist_info, frameType) VALUES ($1, $2, $3, $4)`, os.Getenv("BANLIST_TABLE_NAME"))
+		sqlStatement := fmt.Sprintf(`INSERT INTO %s (id, card_id, banlist_info, frameType) VALUES ($1, $2, $3, $4)`, filterMap["table"])
 
 		return sqlStatement, baseUrl
 	case "count":

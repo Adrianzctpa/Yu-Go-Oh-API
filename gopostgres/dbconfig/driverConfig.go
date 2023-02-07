@@ -10,7 +10,7 @@ type DB struct {
 }
 
 type BanlistDB struct {
-	List []Banlist `json:"data"`
+	List []BanlistJSON `json:"data"`
 }
 
 type Card struct {
@@ -29,8 +29,10 @@ type Card struct {
 	Card_Scale            null.Int       `json:"card_scale"`
 	Image_url_uint8       []byte
 	Image_url_small_uint8 []byte
-	Image_url             []string `json:"image_url"`
-	Image_url_small       []string `json:"image_url_small"`
+	Image_url             []string          `json:"image_url"`
+	Image_url_small       []string          `json:"image_url_small"`
+	BanlistInfoString     null.String       `json:"banlist_info_string"`
+	BanlistInfo           map[string]string `json:"banlist_info"`
 }
 
 type CardDB struct {
@@ -56,7 +58,7 @@ type CardImageDB struct {
 	Image_url_small string `json:"image_url_small"`
 }
 
-type Banlist struct {
+type BanlistJSON struct {
 	ID          int               `json:"id"`
 	FrameType   string            `json:"frameType"`
 	BanlistInfo map[string]string `json:"banlist_info"`
