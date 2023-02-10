@@ -98,10 +98,10 @@ func GetCardById(DB *sql.DB, id int) (dbConfig.Card, error) {
 func GetCardsInDB(DB *sql.DB, filterArr map[string]string, page int, query_size int, mode string) ([]dbConfig.Card, error) {
 	var sqlStatement string
 
-	if mode == "filter" {
-		sqlStatement, _ = writeSQLStatement("filter", filterArr, page, query_size)
-	} else {
+	if mode != "filter" && mode != "getBanlist" {
 		sqlStatement, _ = writeSQLStatement("get", filterArr, page, query_size)
+	} else {
+		sqlStatement, _ = writeSQLStatement(mode, filterArr, page, query_size)
 	}
 
 	query, err := DB.Query(sqlStatement)
@@ -218,6 +218,7 @@ func prepareExecToDB(sqlStatement string, DB *sql.DB, args ...interface{}) {
 
 func writeSQLStatement(statementType string, filterMap map[string]string, page int, limit int) (string, string) {
 	baseUrl := "/cards/?"
+
 	var baseSelect string = `
 		SELECT Q.id, Q.card_name, Q.card_type, 
 		Q.description, Q.archetype, Q.atk, Q.def, 
@@ -227,13 +228,12 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 	`
 
 	var baseJoins string = fmt.Sprintf(`
-		LEFT JOIN %s ban on Q.id = card_id
 		CROSS JOIN LATERAL (
 			SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small
 			FROM %s ci
 			WHERE ci.card_id = Q.id
 		) as L
-	`, os.Getenv("BANLIST_TABLE_NAME"), os.Getenv("IMAGES_TABLE_NAME"))
+	`, os.Getenv("IMAGES_TABLE_NAME"))
 
 	if page > 1 {
 		page = limit * page
@@ -249,14 +249,17 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 	case "get":
 		getString := fmt.Sprintf(`
 		FROM (SELECT * FROM %s LIMIT %d OFFSET %d) as Q
-		`, os.Getenv("CARD_TABLE_NAME"), limit, page)
+		LEFT JOIN %s ban on Q.id = card_id
+		`, os.Getenv("CARD_TABLE_NAME"), limit, page, os.Getenv("BANLIST_TABLE_NAME"))
 
 		sqlStatement := baseSelect + getString + baseJoins
 
 		return sqlStatement, baseUrl
 	case "getById":
 		getIdString := fmt.Sprintf(`
-		FROM (SELECT * FROM %s WHERE id = %s) as Q`, os.Getenv("CARD_TABLE_NAME"), filterMap["id"])
+		FROM (SELECT * FROM %s WHERE id = %s) as Q
+		LEFT JOIN %s ban on Q.id = card_id`,
+			os.Getenv("CARD_TABLE_NAME"), filterMap["id"], os.Getenv("BANLIST_TABLE_NAME"))
 
 		sqlStatement := baseSelect + getIdString + baseJoins
 
@@ -276,6 +279,15 @@ func writeSQLStatement(statementType string, filterMap map[string]string, page i
 	case "postBanlist":
 		sqlStatement := fmt.Sprintf(`INSERT INTO %s (id, card_id, banlist_info, frameType) VALUES ($1, $2, $3, $4)`, filterMap["table"])
 
+		return sqlStatement, baseUrl
+
+	case "getBanlist":
+		getBanlistString := fmt.Sprintf(`
+			FROM (SELECT * FROM %s) as Q
+			JOIN %s ban on Q.id = card_id
+		`, os.Getenv("CARD_TABLE_NAME"), filterMap["table"])
+
+		sqlStatement := baseSelect + getBanlistString + baseJoins
 		return sqlStatement, baseUrl
 	case "count":
 		sqlStatement := fmt.Sprintf(`SELECT COUNT(*) FROM %s`, os.Getenv("CARD_TABLE_NAME"))
@@ -393,11 +405,12 @@ func filterLoop(filterMap map[string]string, limit int, page int, mode string) (
 			if mode != "count" {
 				sqlStatement = sqlStatement + fmt.Sprintf(` 
 				LIMIT %d OFFSET %d) as Q, 
-				LATERAL (
-					SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small 
-					FROM %s ci 
+				LEFT JOIN %s ban on Q.id = card_id,
+				CROSS JOIN LATERAL (
+					SELECT array_agg(image_url::text) as image_url, array_agg(image_url_small::text) as image_url_small
+					FROM %s ci
 					WHERE ci.card_id = Q.id
-				) as L`, limit, page, os.Getenv("IMAGES_TABLE_NAME"))
+				) as L`, limit, page, os.Getenv("BANLIST_TABLE_NAME"), os.Getenv("IMAGES_TABLE_NAME"))
 			}
 
 			filterUrl = filterUrl + "&"

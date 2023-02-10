@@ -205,6 +205,39 @@ func main() {
 		return c.SendString("Done")
 	})
 
+	app.Get("/banlist/:mode", func(c *fiber.Ctx) error {
+		mode := c.Params("mode")
+
+		if mode != "tcg" && mode != "ocg" {
+			return c.JSON(fiber.Map{
+				"status":  500,
+				"message": "Invalid mode",
+			})
+		}
+
+		filterMap := map[string]string{
+			"table": os.Getenv("BANLIST_TABLE_NAME"),
+		}
+
+		if mode == "ocg" {
+			filterMap["table"] = os.Getenv("OCG_BANLIST_TABLE_NAME")
+		}
+
+		json := map[string]interface{}{}
+		banlist, err := dbUtils.GetCardsInDB(DB, filterMap, 0, 0, "getBanlist")
+
+		if err != nil {
+			json["status"] = 500
+			json["error"] = err.Error()
+			return c.JSON(json)
+		}
+
+		json["status"] = 200
+		json["data"] = banlist
+
+		return c.JSON(json)
+	})
+
 	log.Fatal(app.Listen(":4000"))
 }
 
